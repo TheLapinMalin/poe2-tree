@@ -5,6 +5,7 @@
 	let { positions: nodes, nodesDescription: nodesDesc } = loadData();
 
 	let imageEl: HTMLImageElement | null = $state(null);
+	let containerEl: HTMLDivElement | null = $state(null);
 	let hasLoaded = $state(false);
 
 	let tooltipContent: TooltipContent | null = $state(null);
@@ -14,18 +15,78 @@
 
 	let searchTerm = $state('');
 	let searchResults: string[] = $state([]);
+
+	// Zoom and pan state
+	let scale = $state(1);
+	let translateX = $state(0);
+	let translateY = $state(0);
+	let isDragging = $state(false);
+	let startX = $state(0);
+	let startY = $state(0);
+
 	$effect(() => {
 		handleSearch(searchTerm);
 	});
+
+	function handleZoom(event: WheelEvent) {
+		if (!containerEl || !imageEl) return;
+
+		// Prevent default scroll behavior
+		event.preventDefault();
+
+		// Calculate zoom based on mouse wheel
+		const delta = event.deltaY > 0 ? -0.1 : 0.1;
+		const newScale = Math.max(0.5, Math.min(scale + delta, 3));
+
+		// Calculate zoom point relative to container
+		const rect = containerEl.getBoundingClientRect();
+		const mouseX = event.clientX - rect.left;
+		const mouseY = event.clientY - rect.top;
+
+		// Calculate new translation to zoom towards mouse point
+		const scaleChange = newScale / scale;
+		translateX = mouseX - (mouseX - translateX) * scaleChange;
+		translateY = mouseY - (mouseY - translateY) * scaleChange;
+
+		scale = newScale;
+	}
+
+	function handleMouseDown(event: MouseEvent) {
+		if (!containerEl) return;
+
+		isDragging = true;
+		startX = event.clientX - translateX;
+		startY = event.clientY - translateY;
+		containerEl.style.cursor = 'grabbing';
+	}
+
+	function handleMouseMove(event: MouseEvent) {
+		if (!isDragging) return;
+
+		translateX = event.clientX - startX;
+		translateY = event.clientY - startY;
+	}
+
+	function handleMouseUp() {
+		if (!containerEl) return;
+
+		isDragging = false;
+		containerEl.style.cursor = 'grab';
+	}
 
 	function activateTooltip(node: NodePosition) {
 		tooltipContent = nodesDesc[node.id];
 
 		if (!imageEl) return;
 
-		tooltipX = node.x * imageEl.width + 20; // Offset for positioning
-		tooltipY = node.y * imageEl.height - 20;
+		// Adjust tooltip position based on current zoom and translation
+		const adjustedX = (node.x * imageEl.width + 20 - translateX) / scale;
+		const adjustedY = (node.y * imageEl.height - 20 - translateY) / scale;
+
+		tooltipX = adjustedX;
+		tooltipY = adjustedY;
 	}
+
 	function handleMousedown(node: NodePosition) {
 		tooltipHold = true;
 		activateTooltip(node);
@@ -79,35 +140,62 @@
 	<span> > Search results: {searchResults.length}</span>
 </div>
 
-<div class="image-container">
-	<img bind:this={imageEl} onload={handleImageLoad} src="{base}/skill-tree.png" alt="Interactive" />
+<div 
+	bind:this={containerEl} 
+	class="image-container" 
+	on:wheel={handleZoom}
+	on:mousedown={handleMouseDown}
+	on:mousemove={handleMouseMove}
+	on:mouseup={handleMouseUp}
+	on:mouseleave={handleMouseUp}
+	style="cursor: grab;"
+>
+	<div style="
+		transform: scale({scale}) translate({translateX}px, {translateY}px);
+		transform-origin: top left;
+		transition: transform 0.1s ease;
+	">
+		<img 
+			bind:this={imageEl} 
+			onload={handleImageLoad} 
+			src="{base}/skill-tree.png" 
+			alt="Interactive" 
+		/>
 
-	<!-- Display hoverable regions with lighter color -->
-	{#if hasLoaded}
-		<!-- content here -->
-		{#each ['notables', 'keystones'] as kind}
-			{#each nodes[kind] as node}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div
-					class:notable={node.id.startsWith('N')}
-					class:keystone={node.id.startsWith('K')}
-					class:unidentified={nodesDesc[node.id].name === node.id}
-					class:search-result={searchResults.includes(node.id)}
-					style="
-        left: {node.x * imageEl?.width - 10}px;
-        top: {node.y * imageEl?.height - 10}px;
-      "
-					onmousedown={() => handleMousedown(node)}
-					onmouseenter={() => handleMouseEnter(node)}
-					onmouseleave={handleMouseLeave}
-				></div>
+		<!-- Display hoverable regions with lighter color -->
+		{#if hasLoaded}
+			{#each ['notables', 'keystones'] as kind}
+				{#each nodes[kind] as node}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class:notable={node.id.startsWith('N')}
+						class:keystone={node.id.startsWith('K')}
+						class:unidentified={nodesDesc[node.id].name === node.id}
+						class:search-result={searchResults.includes(node.id)}
+						style="
+							left: {node.x * imageEl?.width - 10}px;
+							top: {node.y * imageEl?.height - 10}px;
+						"
+						onmousedown={() => handleMousedown(node)}
+						onmouseenter={() => handleMouseEnter(node)}
+						onmouseleave={handleMouseLeave}
+					></div>
+				{/each}
 			{/each}
-		{/each}
-	{/if}
+		{/if}
+	</div>
 
 	<!-- Tooltip displayed when a region is hovered -->
 	{#if tooltipContent != null}
-		<div class="tooltip" style="left: {tooltipX}px; top: {tooltipY}px;">
+		<div 
+			class="tooltip" 
+			style="
+				left: {tooltipX}px; 
+				top: {tooltipY}px;
+				transform: scale({1/scale});
+				transform-origin: top left;
+			"
+		>
 			<div class="title">{tooltipContent.name}</div>
 			{#each tooltipContent.stats as stat}
 				<div class="body">{stat}</div>
@@ -120,6 +208,9 @@
 	.image-container {
 		position: relative;
 		display: inline-block;
+		overflow: hidden;
+		width: 100%;
+		height: 600px; /* Set a fixed height for the container */
 	}
 
 	.notable {

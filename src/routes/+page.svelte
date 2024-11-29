@@ -143,11 +143,11 @@
 <div 
 	bind:this={containerEl} 
 	class="image-container" 
-	on:wheel={handleZoom}
-	on:mousedown={handleMouseDown}
-	on:mousemove={handleMouseMove}
-	on:mouseup={handleMouseUp}
-	on:mouseleave={handleMouseUp}
+	onwheel={handleZoom}
+	onmousedown={handleMouseDown}
+	onmousemove={handleMouseMove}
+	onmouseup={handleMouseUp}
+	onmouseleave={handleMouseUp}
 	style="cursor: grab;"
 >
 	<div style="
